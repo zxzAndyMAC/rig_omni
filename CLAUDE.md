@@ -149,3 +149,19 @@ idf.py menuconfig
 | BLE 遥控 | ✅ | ✅ | ❌（使用其他方式）|
 | 专属音效 | woof.ogg | 无 | engine_startup / engine_throttle |
 | 调试工具 | 无 | 无 | hover_debug_server |
+
+---
+
+## Agent skills
+
+### Issue tracker
+
+Issue 以本地 Markdown 文件形式存放在 `.scratch/<feature>/` 下。详见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+使用默认的五个规范 triage 标签（`needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix`）。详见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+单上下文布局：根目录一个 `CONTEXT.md` + `docs/adr/`。详见 `docs/agents/domain.md`。

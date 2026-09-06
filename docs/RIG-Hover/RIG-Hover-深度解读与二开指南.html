@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RIG-Hover 深度解读与二次开发指南</title>
+<style>
+  :root {
+    --bg: #0c0f12;
+    --bg-elev: #141a20;
+    --bg-card: #1a222b;
+    --line: #2a3540;
+    --text: #e8eef4;
+    --muted: #8b9aab;
+    --accent: #3ecf8e;
+    --accent-dim: #2a9d6a;
+    --warn: #f0a050;
+    --info: #5eb0e8;
+    --code-bg: #0a0d10;
+    --radius: 10px;
+    --max: 920px;
+    --font: "IBM Plex Sans", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", "SF Mono", "Menlo", "Consolas", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    font-size: 16px;
+  }
+  body::before {
+    content: "";
+    position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(ellipse 80% 50% at 10% -10%, rgba(62,207,142,.12), transparent 50%),
+      radial-gradient(ellipse 60% 40% at 90% 0%, rgba(94,176,232,.08), transparent 45%),
+      repeating-linear-gradient(0deg, transparent, transparent 47px, rgba(42,53,64,.35) 48px);
+  }
+  a { color: var(--info); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: var(--max); margin: 0 auto; padding: 0 1.25rem 4rem; }
+
+  /* Hero */
+  header.hero {
+    padding: 3.5rem 0 2.5rem;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 2rem;
+  }
+  .brand {
+    font-size: .8rem; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--accent); font-weight: 600; margin-bottom: .75rem;
+  }
+  h1 {
+    font-size: clamp(1.8rem, 4vw, 2.6rem);
+    font-weight: 700; line-height: 1.25; margin-bottom: 1rem;
+    letter-spacing: -.02em;
+  }
+  .lede {
+    font-size: 1.1rem; color: var(--muted); max-width: 42em;
+    margin-bottom: 1.5rem;
+  }
+  .meta {
+    display: flex; flex-wrap: wrap; gap: .5rem .75rem;
+    font-size: .85rem; color: var(--muted);
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: .35rem;
+    padding: .25rem .65rem; border-radius: 999px;
+    background: var(--bg-elev); border: 1px solid var(--line);
+  }
+  .chip strong { color: var(--accent); font-weight: 600; }
+
+  /* Nav */
+  nav.toc {
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(12,15,18,.92); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+    margin: 0 -1.25rem 2rem; padding: .75rem 1.25rem;
+    overflow-x: auto; white-space: nowrap;
+  }
+  nav.toc a {
+    display: inline-block; color: var(--muted); font-size: .85rem;
+    margin-right: 1.1rem; padding: .2rem 0;
+  }
+  nav.toc a:hover { color: var(--accent); text-decoration: none; }
+
+  /* Sections */
+  section { margin-bottom: 3.25rem; scroll-margin-top: 3.5rem; }
+  h2 {
+    font-size: 1.45rem; font-weight: 700; margin-bottom: 1rem;
+    padding-bottom: .5rem; border-bottom: 2px solid var(--accent-dim);
+    letter-spacing: -.01em;
+  }
+  h3 {
+    font-size: 1.1rem; font-weight: 650; margin: 1.75rem 0 .75rem;
+    color: #c5d4e0;
+  }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 .5rem; color: var(--warn); }
+  p { margin-bottom: 1rem; color: #d0dae4; }
+  ul, ol { margin: 0 0 1rem 1.35rem; color: #d0dae4; }
+  li { margin-bottom: .4rem; }
+  li::marker { color: var(--accent-dim); }
+
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--bg-elev);
+    padding: 1rem 1.15rem;
+    margin: 1.25rem 0;
+    border-radius: 0 var(--radius) var(--radius) 0;
+  }
+  .callout.warn { border-left-color: var(--warn); }
+  .callout.info { border-left-color: var(--info); }
+  .callout strong { color: var(--text); }
+
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
+    margin: 1.25rem 0;
+  }
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 1.1rem 1.15rem;
+  }
+  .card h4 { margin: 0 0 .4rem; color: var(--accent); font-size: .95rem; }
+  .card p { margin: 0; font-size: .9rem; color: var(--muted); }
+
+  table {
+    width: 100%; border-collapse: collapse; margin: 1rem 0 1.5rem;
+    font-size: .9rem;
+  }
+  th, td {
+    text-align: left; padding: .55rem .7rem;
+    border-bottom: 1px solid var(--line); vertical-align: top;
+  }
+  th {
+    background: var(--bg-elev); color: var(--accent);
+    font-weight: 600; font-size: .8rem; text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  tr:hover td { background: rgba(62,207,142,.04); }
+  code, .path {
+    font-family: var(--mono); font-size: .86em;
+    background: var(--code-bg); padding: .1em .35em; border-radius: 4px;
+    color: #9fe8c4;
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 1rem 1.1rem;
+    overflow-x: auto; margin: 1rem 0 1.25rem;
+    font-family: var(--mono); font-size: .82rem; line-height: 1.55;
+    color: #c8d6e0;
+  }
+  pre code { background: none; padding: 0; color: inherit; }
+
+  .flow {
+    background: var(--bg-elev); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 1.15rem 1.25rem;
+    font-family: var(--mono); font-size: .8rem; line-height: 1.65;
+    color: #a8c0d0; white-space: pre-wrap; margin: 1rem 0;
+  }
+
+  .steps { counter-reset: step; list-style: none; margin-left: 0; }
+  .steps li {
+    counter-increment: step; position: relative;
+    padding: .85rem 0 .85rem 3rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .steps li::before {
+    content: counter(step);
+    position: absolute; left: 0; top: .9rem;
+    width: 1.85rem; height: 1.85rem; border-radius: 50%;
+    background: var(--accent-dim); color: #04140c;
+    font-weight: 700; font-size: .85rem;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono);
+  }
+
+  .path-box {
+    display: flex; flex-direction: column; gap: .75rem;
+    margin: 1.25rem 0;
+  }
+  .path-item {
+    display: grid; grid-template-columns: 7rem 1fr; gap: 1rem;
+    background: var(--bg-card); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 1rem 1.15rem; align-items: start;
+  }
+  .path-tag {
+    font-size: .75rem; font-weight: 700; letter-spacing: .06em;
+    text-transform: uppercase; color: #04140c;
+    background: var(--accent); padding: .3rem .5rem; border-radius: 4px;
+    text-align: center;
+  }
+  .path-tag.mid { background: var(--info); }
+  .path-tag.hard { background: var(--warn); }
+  .path-item h4 { margin: 0 0 .35rem; color: var(--text); }
+  .path-item p { margin: 0; font-size: .9rem; color: var(--muted); }
+
+  footer {
+    margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--line);
+    font-size: .85rem; color: var(--muted);
+  }
+  @media (max-width: 640px) {
+    .path-item { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="brand">LuwuDynamics · RIG-Omni · Hover</div>
+  <h1>RIG-Hover（文文）深度解读<br />与二次开发指南</h1>
+  <p class="lede">
+    你买的不只是一个会站立的桌宠——它是一套跑在 ESP32-S3 上的开源机器人固件骨架：
+    语音 AI、表情动画、LQR 自平衡、摄像头多模态、MCP 远程工具，全在同一颗芯片里。
+    这份文档用通俗语言讲清它是什么、怎么工作，以及如何深度定制、连接自己的服务器与 AI Agent。
+  </p>
+  <div class="meta">
+    <span class="chip">固件仓库 <strong>rig_omni</strong></span>
+    <span class="chip">版本 <strong>3.7.0</strong></span>
+    <span class="chip">芯片 <strong>ESP32-S3</strong></span>
+    <span class="chip">BYOK 分支 <strong>rig_local</strong></span>
+  </div>
+</header>
+
+<nav class="toc">
+  <a href="#what">它是什么</a>
+  <a href="#how">怎么工作</a>
+  <a href="#arch">代码架构</a>
+  <a href="#cloud">云端与对话</a>
+  <a href="#motion">平衡控制</a>
+  <a href="#vision">拍照多模态</a>
+  <a href="#dev">二开路线</a>
+  <a href="#server">接自己的服务器</a>
+  <a href="#ecosystem">相关开源库</a>
+  <a href="#checklist">动手清单</a>
+</nav>
+
+<!-- 1 -->
+<section id="what">
+  <h2>1. 它是什么？用大白话说</h2>
+  <p>
+    <strong>RIG-Hover（中文昵称「文文」）</strong>是陆吾智能 RIG 系列里的双轮自平衡桌宠：
+    极窄轮距、低重心、头部能左右张望，能听懂「小陆同学」、能聊天、能表情、能动起来。
+  </p>
+  <p>
+    真正有意思的是：它的「大脑」固件叫 <code>rig_omni</code>——
+    <strong>同一套代码</strong>还能编译出机器狗（Puppy）和机械臂（Arm）。
+    你买到的 Hover，只是编译时勾选了 <code>BOARD_TYPE_HOVER</code> 的那一版。
+  </p>
+
+  <div class="card-grid">
+    <div class="card">
+      <h4>硬件一句话</h4>
+      <p>ESP32-S3 + 双 FOC 轮电机 + 1 个头部舵机 + IMU + 圆屏 + 麦克风/喇叭 + GC0308 摄像头</p>
+    </div>
+    <div class="card">
+      <h4>软件一句话</h4>
+      <p>本地唤醒 → 云端 ASR/LLM/TTS → MCP 工具控制头/轮 → LQR 每几毫秒维持不倒</p>
+    </div>
+    <div class="card">
+      <h4>开源价值</h4>
+      <p>不是玩具黑盒：板级、协议、平衡、MCP、摄像头链路全部可读可改，Apache 2.0</p>
+    </div>
+  </div>
+
+  <table>
+    <thead><tr><th>规格</th><th>数值</th></tr></thead>
+    <tbody>
+      <tr><td>尺寸 / 重量</td><td>约 61×61×139 mm · ~375g</td></tr>
+      <tr><td>自由度</td><td>3（双轮差速 + 头部水平 ±70°）</td></tr>
+      <tr><td>最高滑行速度</td><td>~10 cm/s</td></tr>
+      <tr><td>电池</td><td>2S 7.4V · 500mAh · Type-C</td></tr>
+      <tr><td>续航</td><td>自平衡待机 ≥1.5h · 互动 ≥1h</td></tr>
+      <tr><td>控制周期</td><td>~1–6 ms 级（LQR 平衡环）</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout info">
+    <strong>上手提醒：</strong>上电时务必手扶竖直 2–3 秒，等 IMU 校准完成、感到轮部有轻微「对抗」后再松手。
+    配网后设备会重启并暂时失衡——请扶住，避免摔坏。
+  </div>
+</section>
+
+<!-- 2 -->
+<section id="how">
+  <h2>2. 通电之后发生了什么？</h2>
+  <p>把整机想象成「五条并行的流水线」：</p>
+  <ol>
+    <li><strong>站稳</strong>：IMU 读姿态 → LQR 算力矩 → UART 发给左右轮（一直在跑，和聊天无关）</li>
+    <li><strong>听声</strong>：麦克风 → 本地唤醒词「小陆同学」→ 开始录音</li>
+    <li><strong>上网说话</strong>：Opus 音频上行 → 云端 ASR → LLM → TTS → 喇叭播放</li>
+    <li><strong>做事</strong>：LLM 通过 MCP 调用工具（转头、前进、拍照……）</li>
+    <li><strong>表情</strong>：圆屏用 EAF 动画播 happy / listen / thinking 等</li>
+  </ol>
+
+  <div class="flow">开机
+  → NVS / WiFi 配网（BluFi 或 AP）
+  → 访问 OTA 接口（拿 mqtt/websocket 配置 + 检查固件）
+  → 选协议（MQTT 或 WebSocket）
+  → 空闲待机（Idle）+ 唤醒词监听
+  → 唤醒 → Connecting → Listening → Speaking → Idle
+  （全程 xgo_control / imu / 音频任务并行）</div>
+
+  <h3>设备状态机（简化）</h3>
+  <p>
+    固件用 12 种状态管理生命周期，日常对话主要在这四个之间转：
+    <code>Idle</code> ⇄ <code>Connecting</code> → <code>Listening</code> → <code>Speaking</code>。
+    另有配网、OTA 升级、激活、致命错误等状态。
+  </p>
+</section>
+
+<!-- 3 -->
+<section id="arch">
+  <h2>3. 代码架构：该从哪里读起？</h2>
+  <p>仓库：<a href="https://github.com/LuwuDynamics/rig_omni" target="_blank" rel="noopener">LuwuDynamics/rig_omni</a></p>
+
+  <pre><code>rig_omni/
+├── main/
+│   ├── application.cc      # 应用生命周期、状态机、协议调度
+│   ├── mcp_server.cc       # MCP 工具框架（设备是 Server）
+│   ├── ota.cc              # OTA + 服务器配置下发入口
+│   ├── audio/              # 唤醒词、降噪、Opus 编解码
+│   ├── display/            # LVGL + EAF 表情
+│   ├── protocols/          # MQTT / WebSocket 云协议
+│   └── boards/
+│       ├── common/         # IMU、WiFi、摄像头、按键（三板共享）
+│       └── hover/          # ★ Hover 专属
+│           ├── hover_board.cc
+│           ├── xgo.cc      # 平衡控制 + 电机协议
+│           ├── hover_debug_server.cc
+│           └── board_config.h
+├── partitions/16m.csv      # 16MB Flash：双 OTA + 8MB assets
+└── tools/                  # 固件包打包脚本</code></pre>
+
+  <h3>最先读这 4 个文件</h3>
+  <table>
+    <thead><tr><th>文件</th><th>为什么重要</th></tr></thead>
+    <tbody>
+      <tr><td><code>boards/hover/hover_board.cc</code></td><td>板级总入口：屏、键、摄像头、UART、MCP、三个控制任务</td></tr>
+      <tr><td><code>boards/hover/xgo.cc</code></td><td>LQR 平衡环、轮电机/舵机协议、摔倒保护</td></tr>
+      <tr><td><code>boards/hover/hover_debug_server.cc</code></td><td>局域网 Web 调参面板（改 LQR 增益）</td></tr>
+      <tr><td><code>ota.cc</code> + <code>application.cc</code></td><td>如何拿到服务器地址、如何选 MQTT/WS、对话如何流转</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout warn">
+    <strong>板级隔离规则：</strong>一次改动不要同时改多个板型专属文件。
+    改共享目录（<code>boards/common/</code>、<code>audio/</code> 等）前要想清楚对 Puppy / Arm / Hover 的影响。
+  </div>
+
+  <h3>编译与烧录</h3>
+  <pre><code># 环境：ESP-IDF ≥ 5.5.2，Python 3.8+
+git clone https://github.com/LuwuDynamics/rig_omni.git
+cd rig_omni
+source ~/esp/esp-idf/export.sh
+
+idf.py set-target esp32s3
+idf.py menuconfig
+# → RIG-Omni → Board Type → RIG-Hover
+# → Firmware Region → Domestic / Overseas
+
+idf.py build
+idf.py -p /dev/tty.usbmodem* flash monitor   # macOS 示例
+
+# 切换板型后务必 fullclean，否则可能链到错误板级文件
+# idf.py fullclean</code></pre>
+</section>
+
+<!-- 4 -->
+<section id="cloud">
+  <h2>4. 云端对话是怎么连上的？</h2>
+  <p>
+    设备<strong>不自带</strong>写死的聊天服务器地址。开机联网后，它先请求一个 <strong>OTA 配置接口</strong>：
+  </p>
+  <ul>
+    <li>国内默认：<code>https://xl-api.xgorobot.com/xiaolu/ota/</code></li>
+    <li>海外默认：<code>https://xl-api.luwudynamics.ai/xiaolu/ota/</code></li>
+    <li>可用 NVS 键 <code>wifi/ota_url</code> 覆盖</li>
+  </ul>
+  <p>
+    该接口返回的 JSON 里，若带 <code>mqtt{...}</code> 或 <code>websocket{...}</code>，
+    固件会把参数写入 NVS，并据此选择协议。
+    <strong>没有配置时默认走 MQTT。</strong>
+  </p>
+
+  <h3>两条通道对比</h3>
+  <table>
+    <thead><tr><th>项目</th><th>WebSocket</th><th>MQTT</th></tr></thead>
+    <tbody>
+      <tr><td>控制/JSON</td><td>同一条 WS</td><td>MQTT Topic</td></tr>
+      <tr><td>音频</td><td>同一条 WS（Opus）</td><td>独立 UDP + AES-CTR 加密</td></tr>
+      <tr><td>NVS 配置</td><td><code>url / token / version</code></td><td><code>endpoint / client_id / username / password / publish_topic</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>一次对话里的关键消息</h3>
+  <table>
+    <thead><tr><th>方向</th><th>type</th><th>含义</th></tr></thead>
+    <tbody>
+      <tr><td>设备→云</td><td><code>hello</code></td><td>握手：声明 opus / mcp / aec</td></tr>
+      <tr><td>设备→云</td><td><code>listen</code></td><td>开始/停止听；唤醒时带唤醒词文本</td></tr>
+      <tr><td>云→设备</td><td><code>stt</code></td><td>用户说了什么（字幕）</td></tr>
+      <tr><td>云→设备</td><td><code>tts</code></td><td>开始/停止播放；逐句字幕</td></tr>
+      <tr><td>云→设备</td><td><code>llm</code></td><td>切换表情 emotion</td></tr>
+      <tr><td>双向</td><td><code>mcp</code></td><td>JSONRPC 2.0：AI 调工具 / 工具回结果</td></tr>
+    </tbody>
+  </table>
+
+  <h3>MCP：让 AI「动手」</h3>
+  <p>
+    设备是 <strong>MCP Server</strong>，云端 LLM 是 Client。
+    AI 发现工具列表后，可以调用例如：
+  </p>
+  <ul>
+    <li><code>self.robot.head_angle</code> — 转头</li>
+    <li><code>self.robot.move</code> — 前进/后退（厘米）</li>
+    <li><code>self.robot.rotate</code> — 原地转向</li>
+    <li><code>self.camera.take_photo</code> — 拍照并识图</li>
+    <li><code>self.camera.preview</code> — 拍照上屏</li>
+    <li>以及音量、亮度、电量、语言等通用工具</li>
+  </ul>
+  <div class="callout">
+    <strong>官方桌面站：</strong>
+    <a href="https://agent.xgorobot.com/" target="_blank" rel="noopener">agent.xgorobot.com</a>
+    可配置智能体、知识库、声音复刻、MCP。
+    微信小程序「小陆同学」功能对齐。
+  </div>
+</section>
+
+<!-- 5 -->
+<section id="motion">
+  <h2>5. 为什么它不会倒？——LQR 平衡控制</h2>
+  <p>
+    Hover 的「站稳」不依赖聊天云，是本地实时控制。
+    三个 FreeRTOS 任务：
+  </p>
+  <ul>
+    <li><code>xgo_task</code> → 循环调用 <code>xgo_control()</code></li>
+    <li><code>xgo_rx_task</code> → 读电机/舵机反馈</li>
+    <li><code>imu_task</code> → 读 QMI8658C 的 roll/pitch/yaw</li>
+  </ul>
+
+  <h3>控制思想（通俗版）</h3>
+  <p>
+    每几毫秒看一眼：位置偏了多少、速度偏了多少、身子倾了多少、倾的有多快，
+    用四个增益加权合成一个力矩，再拆成左右轮差速。这就是离散 LQR：
+  </p>
+  <pre><code>u = -( K0·位置误差 + K1·速度误差 + K2·俯仰误差 + K3·俯仰角速度 )
+默认：lqr_k = {1400, 6.8, 32, 1.6}
+航向：yaw_u = k_yaw · (yaw - 头角 - 目标航向)
+输出：左轮 = -u + yaw_u，右轮 = +u + yaw_u</code></pre>
+
+  <h3>安全保护（二开必须保留）</h3>
+  <ul>
+    <li>俯仰 ≥60° 或横滚 ≥40° 持续 0.5s → 切断力矩</li>
+    <li>直立 &lt;7° 持续 1.5s → 重新允许平衡</li>
+    <li>轮速异常偏大 → 判定被拿起，切断力矩</li>
+  </ul>
+
+  <h3>局域网调参</h3>
+  <p>
+    WiFi 连上后访问 <code>http://&lt;设备IP&gt;/</code>，
+    可实时看 IMU，并热调 head / delta_pos / imu_zero / LQR_k0~k3 等。
+  </p>
+  <div class="callout warn">
+    <strong>调参顺序建议：</strong>
+    imu_zero → LQR_k2 → LQR_k3 → LQR_k1 → LQR_k0 → k_yaw。
+    每次小幅改；先悬空测电机方向，再手扶，最后放地。
+    不要一开始就猛加 LQR_k0（容易来回冲击）。
+  </div>
+
+  <h3>电机与引脚（Hover）</h3>
+  <table>
+    <thead><tr><th>外设</th><th>配置</th></tr></thead>
+    <tbody>
+      <tr><td>UART（舵机/轮）</td><td>UART2 · 1 Mbps · TX GPIO46 · RX GPIO38</td></tr>
+      <tr><td>头部舵机</td><td>ID 3</td></tr>
+      <tr><td>左右轮</td><td>ID 1 / 2（冗余 ID 11 / 21）</td></tr>
+      <tr><td>IMU</td><td>QMI8658C · SDA 14 · SCL 48</td></tr>
+      <tr><td>触摸键</td><td>GPIO 3（单击摇头 / 双击转圈）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- 6 -->
+<section id="vision">
+  <h2>6. 拍照与多模态：已经内置了</h2>
+  <p>
+    Hover 板上的 GC0308 摄像头已接入。AI 说「看看这是什么」时，会调用
+    <code>self.camera.take_photo</code>：
+  </p>
+  <ol>
+    <li>本地抓取 240×240 RGB565 帧</li>
+    <li>软编码 JPEG</li>
+    <li>以 <code>multipart/form-data</code>（字段 question + file）POST 到识图 URL</li>
+    <li>把服务器返回的文字分析结果带回对话</li>
+  </ol>
+  <p>
+    识图 URL <strong>不是写死在固件里的</strong>：来自 MCP <code>initialize</code> 握手时
+    服务端下发的 <code>capabilities.vision.{url, token}</code>。
+  </p>
+  <div class="callout info">
+    <strong>二开含义：</strong>你自建后端时，只要在 MCP initialize 里带上自己的 VLM 接口地址，
+    并实现「接收 JPEG + question → 返回文字」即可接上多模态。
+    仅拍照上屏用不带分析的 <code>self.camera.preview</code>。
+  </div>
+</section>
+
+<!-- 7 -->
+<section id="dev">
+  <h2>7. 二次开发：怎么下手？</h2>
+
+  <div class="path-box">
+    <div class="path-item">
+      <div class="path-tag">第 1 天</div>
+      <div>
+        <h4>跑通工程</h4>
+        <p>按上面编译烧录；串口能看到 Hover 日志、屏能播表情、按键能进配网/切聊天。</p>
+      </div>
+    </div>
+    <div class="path-item">
+      <div class="path-tag">第 2 天</div>
+      <div>
+        <h4>读板级初始化</h4>
+        <p>顺着 <code>hover_board.cc</code> 看 SPI/LCD/按键/摄像头/UART/控制器初始化顺序。</p>
+      </div>
+    </div>
+    <div class="path-item">
+      <div class="path-tag">第 3 天</div>
+      <div>
+        <h4>串口电机协议</h4>
+        <p>只测头部 ID3；再读轮反馈；小力矩确认左右方向一致。</p>
+      </div>
+    </div>
+    <div class="path-item">
+      <div class="path-tag">第 4 天</div>
+      <div>
+        <h4>理解平衡</h4>
+        <p>Web 调参页观察 pitch；小幅改 imu_zero 与 LQR_k2/k3。</p>
+      </div>
+    </div>
+    <div class="path-item">
+      <div class="path-tag">第 5 天</div>
+      <div>
+        <h4>加一个动作</h4>
+        <p>在 <code>InitializeTools()</code> 注册新 MCP 工具；回调里只改目标量（stable_pos / stable_yaw / target_head_pos），不要阻塞。</p>
+      </div>
+    </div>
+  </div>
+
+  <h3>常见改动放哪里</h3>
+  <table>
+    <thead><tr><th>你想做的事</th><th>改哪里</th></tr></thead>
+    <tbody>
+      <tr><td>新增动作 / MCP 工具</td><td><code>hover_board.cc</code> 的 <code>InitializeTools()</code></td></tr>
+      <tr><td>改引脚</td><td>只改 <code>boards/hover/board_config.h</code></td></tr>
+      <tr><td>新表情</td><td><code>boards/hover/emoji/*.eaf</code> + <code>240_240/emote.json</code></td></tr>
+      <tr><td>换唤醒词</td><td><code>boards/hover/wakenet/</code> + CMake 中 <code>WAKENET_MODEL</code></td></tr>
+      <tr><td>Web 调参变量</td><td><code>hover_debug_server.cc</code> 的标签与 switch</td></tr>
+      <tr><td>换云端 / 自建后端</td><td>自建 OTA 响应，或改用 <code>rig_local</code>（见下节）</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout warn">
+    <strong>发布前必查：</strong>
+    <code>boards/common/config.h</code> 里若仍有 <code>USE_HARDCODED_WIFI=1</code>
+    （示例 SSID/密码），务必关掉，避免量产设备连错网。
+  </div>
+</section>
+
+<!-- 8 -->
+<section id="server">
+  <h2>8. 连接自己的服务器 / AI Agent：三条路</h2>
+  <p>这是深度二开里最关键的一块。按「改动量从小到大」排列：</p>
+
+  <div class="path-box">
+    <div class="path-item">
+      <div class="path-tag">路径 A</div>
+      <div>
+        <h4>继续用官方固件，只换「大脑配置」</h4>
+        <p>
+          在 <a href="https://agent.xgorobot.com/" target="_blank" rel="noopener">agent.xgorobot.com</a>
+          或小程序里改智能体提示词、知识库、音色。
+          适合：先玩通产品，不碰固件。
+          <strong>局限：</strong>流量仍走陆吾云，不能完全自托管。
+        </p>
+      </div>
+    </div>
+    <div class="path-item">
+      <div class="path-tag mid">路径 B</div>
+      <div>
+        <h4>自建「兼容小智/小陆」协议的后端（改 OTA 指向）</h4>
+        <p>
+          核心：让设备的 OTA URL 指向你的服务器，返回合法的
+          <code>websocket</code> 或 <code>mqtt</code> 配置。
+          之后实现 hello / listen / stt / tts / llm / mcp 消息流 + Opus 音频。
+          视觉：在 MCP initialize 里下发 <code>capabilities.vision.url</code>。
+          <strong>适合：</strong>想完全掌控对话与工具编排，且愿意实现协议服务端。
+        </p>
+      </div>
+    </div>
+    <div class="path-item">
+      <div class="path-tag hard">路径 C ★推荐入门自托管</div>
+      <div>
+        <h4>换用官方 BYOK 分支：rig_local</h4>
+        <p>
+          <a href="https://github.com/LuwuDynamics/rig_local" target="_blank" rel="noopener">rig_local</a>
+          是 rig_omni 的「无服务器版」：删掉 MQTT/WebSocket 云协议，
+          换成 <code>cloud_api</code> 模块，设备<strong>直连厂商 API</strong>（Bring Your Own Key）。
+          Hover / Puppy / Arm 板级代码仍保留——换脑不换身。
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <h3>路径 C 详解：rig_local 能干什么</h3>
+  <table>
+    <thead><tr><th>能力</th><th>绑定情况</th><th>能否指到自己的服务</th></tr></thead>
+    <tbody>
+      <tr><td>LLM</td><td>任意 OpenAI 兼容接口</td><td>✅ 可指向 OpenAI / DeepSeek / 火山 / 自建 vLLM·Ollama</td></tr>
+      <tr><td>VLM（识图）</td><td>OpenAI 兼容视觉模型</td><td>✅ 同上，自定义 base_url / model / key</td></tr>
+      <tr><td>ASR</td><td>DashScope Qwen 实时 ASR</td><td>⚠️ 专有 WebSocket；完全自托管需改 asr_client</td></tr>
+      <tr><td>TTS</td><td>DashScope Qwen TTS</td><td>⚠️ 同上；完全自托管需改 tts_client</td></tr>
+    </tbody>
+  </table>
+
+  <p>配置方式（优先级从高到低）：</p>
+  <ol>
+    <li>设备联网后打开 <code>http://&lt;设备IP&gt;/</code> 网页填 Key（写入 NVS）</li>
+    <li><code>idf.py menuconfig</code> → Cloud API Direct Mode 编译默认值</li>
+    <li>用 <a href="https://github.com/LuwuDynamics/rig_local_web" target="_blank" rel="noopener">rig_local_web</a>
+        / 在线站 <a href="https://rig-local.xgorobot.com/" target="_blank" rel="noopener">rig-local.xgorobot.com</a>
+        一键烧录：固件 + WiFi + API Key 一起写入</li>
+  </ol>
+
+  <div class="callout">
+    <strong>对你目标的映射：</strong>
+    「定制固件烧录 + 连自己服务器 + 自己的 AI Agent + 拍照多模态」→
+    优先试 <strong>路径 C（rig_local）</strong> 把 LLM/VLM 指到自有 OpenAI 兼容服务；
+    若还需自建 ASR/TTS，再在 cloud_api 层替换客户端，或走路径 B 实现完整协议服务端。
+  </div>
+
+  <h3>路径 B：OTA 响应最小骨架（示意）</h3>
+  <pre><code>{
+  "websocket": {
+    "url": "wss://your.server/ws",
+    "token": "your-token",
+    "version": 3
+  },
+  "server_time": { "timestamp": 1735689600000, "timezone_offset": 480 },
+  "firmware": { "version": "3.7.0", "url": "" }
+}</code></pre>
+  <p>
+    设备还会 POST 自身 <code>GetSystemInfoJson()</code>（含 MAC、UUID、板型等）。
+    激活场景可能涉及 HMAC；开源复刻板通常按 Activation-Version 分支处理。
+  </p>
+</section>
+
+<!-- 9 -->
+<section id="ecosystem">
+  <h2>9. 陆吾开源生态：还要不要别的库？</h2>
+  <p>
+    组织主页：
+    <a href="https://github.com/orgs/LuwuDynamics/repositories" target="_blank" rel="noopener">github.com/orgs/LuwuDynamics</a>
+  </p>
+  <table>
+    <thead><tr><th>仓库</th><th>一句话</th><th>对 Hover 二开价值</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><a href="https://github.com/LuwuDynamics/rig_omni" target="_blank" rel="noopener">rig_omni</a></td>
+        <td>官方云协议固件（你当前仓库）</td>
+        <td>★★★★★ 本体</td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/LuwuDynamics/rig_local" target="_blank" rel="noopener">rig_local</a></td>
+        <td>BYOK 直连厂商 API 的固件分支</td>
+        <td>★★★★★ 自托管首选</td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/LuwuDynamics/rig_local_web" target="_blank" rel="noopener">rig_local_web</a></td>
+        <td>浏览器 Web Serial 一键烧录 + 写 NVS</td>
+        <td>★★★★ 分发/烧录模板</td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/LuwuDynamics/mcp-demo-browser" target="_blank" rel="noopener">mcp-demo-browser</a></td>
+        <td>Python FastMCP：让机器人控制电脑</td>
+        <td>★★★ 外挂 MCP 工具范式</td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/LuwuDynamics/xiaolu_mcp_ha" target="_blank" rel="noopener">xiaolu_mcp_ha</a></td>
+        <td>Home Assistant 作为 MCP Server</td>
+        <td>★★ 智能家居接入参考</td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/LuwuDynamics/luwu_os" target="_blank" rel="noopener">luwu_os</a></td>
+        <td>树莓派 CM4/CM5 机器人 Linux OS</td>
+        <td>★★ 另一条产品线；视觉/上位机架构参考</td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/LuwuDynamics/xgo_doglib" target="_blank" rel="noopener">xgo_doglib</a></td>
+        <td>XGO 机器狗 Python UART 库</td>
+        <td>★ 协议对照（指令集≠Hover）</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    其他资料：
+    <a href="https://www.yuque.com/luwudynamics/pet" target="_blank" rel="noopener">语雀知识库</a> ·
+    <a href="https://makerworld.com.cn/zh/@LuwuDynamics" target="_blank" rel="noopener">MakerWorld 3D 模型</a> ·
+    <a href="https://tools.luwudynamics.ai" target="_blank" rel="noopener">官方烧录工具</a> ·
+    <a href="https://wiki.xgorobot.com/" target="_blank" rel="noopener">产品资料库</a>
+  </p>
+</section>
+
+<!-- 10 -->
+<section id="checklist">
+  <h2>10. 建议你按这个顺序动手</h2>
+  <ol class="steps">
+    <li>
+      <strong>先当用户玩通一遍</strong><br />
+      手扶上电 → BluFi/小程序配网 → 唤醒「小陆同学」→ 试转头/前进/拍照。
+      确认硬件与官方云都正常。
+    </li>
+    <li>
+      <strong>本地编译官方 Hover 固件</strong><br />
+      用本仓库 <code>CONFIG_BOARD_TYPE_HOVER</code> 烧录；
+      打开 <code>http://设备IP/</code> 调一次 LQR，建立「改代码→烧录→验证」手感。
+    </li>
+    <li>
+      <strong>加一个自己的 MCP 动作</strong><br />
+      例如「点头两下」：在 <code>InitializeTools()</code> 注册工具，只改 <code>target_head_pos</code>。
+    </li>
+    <li>
+      <strong>决定云策略</strong><br />
+      要完全自托管 → 评估 <code>rig_local</code>（LLM/VLM 指自己的服务）；
+      要兼容现有小智协议生态 → 自建 OTA + WS/MQTT 服务端。
+    </li>
+    <li>
+      <strong>接多模态</strong><br />
+      在自有后端实现 vision HTTP 接口，或在 rig_local 里配置 VLM base_url；
+      用语音说「看看桌上是什么」验证闭环。
+    </li>
+    <li>
+      <strong>（可选）外挂电脑能力</strong><br />
+      参考 <code>mcp-demo-browser</code>，把计算器/打开网页等工具挂到 MCP endpoint，
+      让桌宠指挥你的电脑。
+    </li>
+  </ol>
+
+  <div class="callout">
+    <strong>一句话收束：</strong>
+    RIG-Hover = 本地硬核平衡机 + 可扩展 MCP 工具箱 + 可替换的云端大脑。
+    深度二开时，运动与表情改 <code>boards/hover/</code>；
+    大脑与多模态改「OTA 协议服务端」或直接切到 <code>rig_local</code>。
+  </div>
+</section>
+
+<footer>
+  <p>
+    基于仓库 LuwuDynamics/rig_omni（Hover 3.7.0）源码与官方 RIG-Hover 文档整理。
+    协议与云端细节以实际固件与语雀文档为准；自托管时请自行评估密钥安全与公网暴露风险
+    （局域网 debug 服务器勿直接暴露公网）。
+  </p>
+  <p style="margin-top:.75rem">
+    本地路径：<code>docs/RIG-Hover/RIG-Hover-深度解读与二开指南.html</code>
+    · 用浏览器打开即可阅读
+  </p>
+</footer>
+
+</div>
+</body>
+</html>
