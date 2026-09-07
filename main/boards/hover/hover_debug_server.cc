@@ -8,6 +8,7 @@
 #include <esp_http_server.h>
 #include <esp_log.h>
 #include <cJSON.h>
+#include <ctype.h>
 #include <string.h>
 #include <string>
 #include <map>
@@ -204,12 +205,12 @@ static const char* MCP_HTML = R"rawliteral(
 </head>
 <body>
     <h1>MCP 工具控制台</h1>
-    <div class="subtitle">设备本地已注册的全部 MCP 工具 · 点击名称展开参数表单 · <a href="/">← 返回调试台</a> · <a href="/emoji">表情管理 →</a></div>
+    <div class="subtitle">设备本地已注册的全部 MCP 工具 · <b>点击工具名 ▸ 展开参数表单并执行</b> · <a href="/">← 返回调试台</a> · <a href="/emoji">表情管理 →</a></div>
     <div class="toolbar">
         <input id="search" placeholder="搜索工具名或描述…" oninput="render()">
         <button onclick="loadTools()">刷新</button>
     </div>
-    <div class="group-title" id="robot-title" style="display:none">🤖 机器人控制（会动！）</div>
+    <div class="group-title" id="robot-title" style="display:none">🤖 机器人控制（会动！请扶稳放平）</div>
     <div id="robot-list"></div>
     <div class="group-title" id="common-title" style="display:none">🔧 设备功能</div>
     <div id="common-list"></div>
@@ -221,6 +222,14 @@ static const char* MCP_HTML = R"rawliteral(
 
         function esc(s) {
             return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        // 固件返回的是 inputSchema.properties（按名字索引的对象），转成数组并标注必填
+        function toolParams(t) {
+            const schema = t.inputSchema || {};
+            const props = schema.properties || {};
+            const required = schema.required || [];
+            return Object.keys(props).map(n => Object.assign({ name: n, required: required.indexOf(n) >= 0 }, props[n]));
         }
 
         function loadTools() {
@@ -247,6 +256,12 @@ static const char* MCP_HTML = R"rawliteral(
             return `<div class="param"><label>${esc(p.name)}</label>${inp}<span class="meta">${meta}${p.required ? ' ·必填' : ''}</span></div>`;
         }
 
+        // 展开当前工具的参数面板（执行按钮在面板里）
+        function toggleParams(nameEl) {
+            const params = nameEl.closest('.tool').querySelector('.params');
+            params.style.display = params.style.display === 'block' ? 'none' : 'block';
+        }
+
         function render() {
             const q = document.getElementById('search').value.toLowerCase();
             const robotList = document.getElementById('robot-list');
@@ -260,13 +275,14 @@ static const char* MCP_HTML = R"rawliteral(
                 const isRobot = t.name.startsWith('self.robot') || t.name.startsWith('self.dog');
                 const div = document.createElement('div');
                 div.className = 'tool' + (isRobot ? ' robot' : '');
-                const params = (t.properties || []).map(p => inputFor(p, t.name)).join('');
+                const props = toolParams(t);
+                const params = props.map(p => inputFor(p, t.name)).join('');
                 div.innerHTML = `
-                    <div class="name" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'block' ? 'none' : 'block'">${esc(t.name)}</div>
+                    <div class="name" onclick="toggleParams(this)">▸ ${esc(t.name)}</div>
                     <div class="desc">${esc(t.description)}</div>
                     <div class="params">
-                        ${params || '<div class="meta" style="color:#667788;font-size:12px">无参数</div>'}
-                        <button class="run" onclick="runTool('${esc(t.name)}', ${esc(JSON.stringify((t.properties||[]).map(p=>p.name)))})">▶ 执行</button>
+                        ${params || '<div class="meta" style="color:#667788;font-size:12px">无参数，直接执行</div>'}
+                        <button class="run" onclick="runTool('${esc(t.name)}')">▶ 执行</button>
                         <div class="result" id="result_${esc(t.name)}" style="display:none"></div>
                     </div>
                 `;
@@ -279,7 +295,9 @@ static const char* MCP_HTML = R"rawliteral(
             document.getElementById('empty').style.display = (robotCount + commonCount) ? 'none' : 'block';
         }
 
-        function runTool(name, paramNames) {
+        function runTool(name) {
+            const t = TOOLS.find(x => x.name === name);
+            const paramNames = t ? toolParams(t).map(p => p.name) : [];
             const args = {};
             paramNames.forEach(n => {
                 const el = document.getElementById('p_' + name + '_' + n);
@@ -442,18 +460,40 @@ static esp_err_t mcp_tools_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// URL 百分号解码（esp_http_server 的 query 参数返回的是未解码原文）
+static void url_decode(const char* src, char* dst, size_t dst_size) {
+    size_t j = 0;
+    for (size_t i = 0; src[i] != '\0' && j + 1 < dst_size; i++) {
+        if (src[i] == '%' && isxdigit((unsigned char)src[i+1]) && isxdigit((unsigned char)src[i+2])) {
+            char hex[3] = { src[i+1], src[i+2], '\0' };
+            dst[j++] = (char)strtol(hex, NULL, 16);
+            i += 2;
+        } else if (src[i] == '+') {
+            dst[j++] = ' ';
+        } else {
+            dst[j++] = src[i];
+        }
+    }
+    dst[j] = '\0';
+}
+
 // GET /api/mcp/call?name=self.xxx&args={"angle":10} - 同步执行一个 MCP 工具
-static esp_err_t mcp_call_handler(httpd_req_t *req) {    char buf[512];
+static esp_err_t mcp_call_handler(httpd_req_t *req) {
+    char buf[512];
     int buf_len = httpd_req_get_url_query_len(req) + 1;
     std::string reply;
 
     if (buf_len > 1 && buf_len < (int)sizeof(buf)) {
         httpd_req_get_url_query_str(req, buf, buf_len);
 
+        char raw_name[96] = {0};
+        char raw_args[384] = {0};
         char name[96] = {0};
         char args_str[384] = {0};
-        httpd_query_key_value(buf, "name", name, sizeof(name));
-        httpd_query_key_value(buf, "args", args_str, sizeof(args_str));
+        httpd_query_key_value(buf, "name", raw_name, sizeof(raw_name));
+        httpd_query_key_value(buf, "args", raw_args, sizeof(raw_args));
+        url_decode(raw_name, name, sizeof(name));
+        url_decode(raw_args, args_str, sizeof(args_str));
 
         std::map<std::string, std::string> args;
         cJSON *args_json = cJSON_Parse(args_str);
