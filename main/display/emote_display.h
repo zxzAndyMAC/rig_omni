@@ -31,6 +31,13 @@ public:
 
     void RefreshAll();
 
+    /**
+     * 枚举当前 assets 中的所有表情（解析 index.json 的 emoji_collection）。
+     * 返回 JSON 数组字符串：[{"name":"happy","loop":true,"fps":30},...]
+     * 失败返回空字符串。
+     */
+    std::string GetEmojiListJson();
+
     // Get emote handle for internal use
     emote_handle_t GetEmoteHandle() const { return emote_handle_; }
 

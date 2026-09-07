@@ -326,6 +326,20 @@ public:
     void ParseMessage(const cJSON* json);
     void ParseMessage(const std::string& message);
 
+    /**
+     * Enumerate all registered tools (including user-only tools).
+     * Used by the local debug web console — read-only, no cloud traffic.
+     */
+    const std::vector<McpTool*>& GetTools() const { return tools_; }
+
+    /**
+     * Synchronously call a tool from a non-MCP context (e.g. HTTP debug console).
+     * Arguments are already-typed values from the caller.
+     * Returns the JSON-RPC result string ({"content":[{"type":"text","text":...}]}).
+     * Throws std::runtime_error on unknown tool / missing or invalid argument.
+     */
+    std::string CallToolSync(const std::string& tool_name, const std::map<std::string, std::string>& args);
+
 private:
     McpServer();
     ~McpServer();

@@ -1,10 +1,16 @@
 #include "hover_debug_server.h"
 #include "xgo.h"
 #include "imu.h"
+#include "mcp_server.h"
+#include "board.h"
+#include "display.h"
+#include "display/emote_display.h"
 #include <esp_http_server.h>
 #include <esp_log.h>
 #include <cJSON.h>
 #include <string.h>
+#include <string>
+#include <map>
 #include <stdio.h>
 
 static const char* TAG = "HoverDebug";
@@ -52,7 +58,7 @@ static const char* INDEX_HTML = R"rawliteral(
 </head>
 <body>
     <h1>Hover 调试台</h1>
-    <div class="subtitle">RIG-Hover · 实时姿态与平衡参数（每 0.5 秒自动刷新）</div>
+    <div class="subtitle">RIG-Hover · 实时姿态与平衡参数（每 0.5 秒自动刷新）· <a href="/mcp" style="color:#00d9ff">MCP 工具控制台 →</a> · <a href="/emoji" style="color:#00d9ff">表情管理 →</a></div>
 
     <div class="section">
         <h2>📐 身体姿态（只读）</h2>
@@ -161,10 +167,395 @@ static const char* INDEX_HTML = R"rawliteral(
 </html>
 )rawliteral";
 
+// /mcp - MCP 工具控制台页面
+static const char* MCP_HTML = R"rawliteral(
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP 工具控制台</title>
+    <style>
+        body { font-family: -apple-system, "PingFang SC", Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; background: #1a1a2e; color: #eee; }
+        h1 { color: #00d9ff; text-align: center; font-size: 22px; }
+        .subtitle { text-align: center; color: #8899aa; font-size: 13px; margin-bottom: 8px; }
+        .subtitle a { color: #00d9ff; }
+        .toolbar { display: flex; gap: 10px; margin: 12px 0; }
+        .toolbar input { flex: 1; padding: 8px 12px; border: 1px solid #0f3460; border-radius: 5px; background: #16213e; color: #fff; font-size: 14px; }
+        .toolbar button { padding: 8px 16px; background: #00d9ff; border: none; border-radius: 5px; color: #000; cursor: pointer; font-weight: bold; }
+        .group-title { color: #e9a560; font-size: 14px; margin: 14px 0 6px; font-weight: bold; }
+        .tool { background: #16213e; border-radius: 8px; padding: 12px 14px; margin: 8px 0; border-left: 3px solid #00d9ff; }
+        .tool.robot { border-left-color: #00c853; }
+        .tool .name { color: #00d9ff; font-weight: bold; font-family: monospace; font-size: 14px; cursor: pointer; }
+        .tool.robot .name { color: #00c853; }
+        .tool .desc { color: #8899aa; font-size: 12px; margin-top: 4px; white-space: pre-wrap; }
+        .params { margin-top: 8px; display: none; background: #0f3460; padding: 10px; border-radius: 6px; }
+        .params .param { display: flex; align-items: center; gap: 8px; margin: 6px 0; flex-wrap: wrap; }
+        .params .param label { min-width: 130px; color: #fff; font-family: monospace; font-size: 13px; }
+        .params .param .meta { color: #667788; font-size: 11px; }
+        .params .param input { width: 160px; padding: 6px; border: 1px solid #16213e; border-radius: 4px; background: #16213e; color: #fff; font-size: 14px; }
+        .params button.run { margin-top: 8px; padding: 8px 20px; background: #00c853; border: none; border-radius: 5px; color: #000; cursor: pointer; font-weight: bold; }
+        .params button.run:hover { background: #00a844; }
+        .result { margin-top: 8px; padding: 8px; background: #000; border-radius: 4px; color: #0f0; font-family: monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+        .result.err { color: #e94560; }
+        .status { text-align: center; padding: 10px; color: #0f0; font-size: 14px; min-height: 20px; }
+        .empty { text-align: center; color: #8899aa; padding: 30px; }
+    </style>
+</head>
+<body>
+    <h1>MCP 工具控制台</h1>
+    <div class="subtitle">设备本地已注册的全部 MCP 工具 · 点击名称展开参数表单 · <a href="/">← 返回调试台</a> · <a href="/emoji">表情管理 →</a></div>
+    <div class="toolbar">
+        <input id="search" placeholder="搜索工具名或描述…" oninput="render()">
+        <button onclick="loadTools()">刷新</button>
+    </div>
+    <div class="group-title" id="robot-title" style="display:none">🤖 机器人控制（会动！）</div>
+    <div id="robot-list"></div>
+    <div class="group-title" id="common-title" style="display:none">🔧 设备功能</div>
+    <div id="common-list"></div>
+    <div class="empty" id="empty" style="display:none">没有匹配的工具</div>
+    <div class="status" id="status">加载中…</div>
+
+    <script>
+        let TOOLS = [];
+
+        function esc(s) {
+            return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        function loadTools() {
+            document.getElementById('status').textContent = '加载中…';
+            fetch('/api/mcp/tools')
+                .then(r => r.json())
+                .then(data => { TOOLS = data.tools || []; render(); document.getElementById('status').textContent = '共 ' + TOOLS.length + ' 个工具'; })
+                .catch(e => { document.getElementById('status').textContent = '错误: ' + e.message; });
+        }
+
+        function inputFor(p, toolName) {
+            const id = 'p_' + toolName + '_' + p.name;
+            let inp;
+            if (p.type === 'boolean') {
+                inp = `<select id="${id}"><option value="true">true</option><option value="false">false</option></select>`;
+            } else if (p.type === 'integer') {
+                inp = `<input type="number" id="${id}" placeholder="${p.default !== undefined ? p.default : ''}">`;
+            } else {
+                inp = `<input type="text" id="${id}" placeholder="${p.default !== undefined ? esc(String(p.default)) : ''}">`;
+            }
+            let meta = p.type;
+            if (p.minimum !== undefined) meta += ` (${p.minimum} ~ ${p.maximum})`;
+            else if (p.enum) meta += ` (${p.enum.join(' | ')})`;
+            return `<div class="param"><label>${esc(p.name)}</label>${inp}<span class="meta">${meta}${p.required ? ' ·必填' : ''}</span></div>`;
+        }
+
+        function render() {
+            const q = document.getElementById('search').value.toLowerCase();
+            const robotList = document.getElementById('robot-list');
+            const commonList = document.getElementById('common-list');
+            robotList.innerHTML = ''; commonList.innerHTML = '';
+            let robotCount = 0, commonCount = 0;
+
+            TOOLS.forEach(t => {
+                const text = (t.name + ' ' + t.description).toLowerCase();
+                if (q && !text.includes(q)) return;
+                const isRobot = t.name.startsWith('self.robot') || t.name.startsWith('self.dog');
+                const div = document.createElement('div');
+                div.className = 'tool' + (isRobot ? ' robot' : '');
+                const params = (t.properties || []).map(p => inputFor(p, t.name)).join('');
+                div.innerHTML = `
+                    <div class="name" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'block' ? 'none' : 'block'">${esc(t.name)}</div>
+                    <div class="desc">${esc(t.description)}</div>
+                    <div class="params">
+                        ${params || '<div class="meta" style="color:#667788;font-size:12px">无参数</div>'}
+                        <button class="run" onclick="runTool('${esc(t.name)}', ${esc(JSON.stringify((t.properties||[]).map(p=>p.name)))})">▶ 执行</button>
+                        <div class="result" id="result_${esc(t.name)}" style="display:none"></div>
+                    </div>
+                `;
+                if (isRobot) { robotList.appendChild(div); robotCount++; }
+                else { commonList.appendChild(div); commonCount++; }
+            });
+
+            document.getElementById('robot-title').style.display = robotCount ? 'block' : 'none';
+            document.getElementById('common-title').style.display = commonCount ? 'block' : 'none';
+            document.getElementById('empty').style.display = (robotCount + commonCount) ? 'none' : 'block';
+        }
+
+        function runTool(name, paramNames) {
+            const args = {};
+            paramNames.forEach(n => {
+                const el = document.getElementById('p_' + name + '_' + n);
+                if (el && el.value !== '') args[n] = el.value;
+            });
+            const resultDiv = document.getElementById('result_' + name);
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = '执行中…';
+            fetch('/api/mcp/call?name=' + encodeURIComponent(name) + '&args=' + encodeURIComponent(JSON.stringify(args)))
+                .then(r => r.json())
+                .then(d => {
+                    let text = d.ok ? (d.result || '') : ('❌ ' + d.error);
+                    try { const j = JSON.parse(d.result); text = d.ok ? JSON.stringify(j, null, 2) : text; } catch (e) {}
+                    resultDiv.className = 'result' + (d.ok ? '' : ' err');
+                    resultDiv.textContent = text;
+                })
+                .catch(e => { resultDiv.className = 'result err'; resultDiv.textContent = '❌ ' + e.message; });
+        }
+
+        loadTools();
+    </script>
+</body>
+</html>
+)rawliteral";
+
+// /emoji - 表情管理页面
+static const char* EMOJI_HTML = R"rawliteral(
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>表情管理</title>
+    <style>
+        body { font-family: -apple-system, "PingFang SC", Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; background: #1a1a2e; color: #eee; }
+        h1 { color: #00d9ff; text-align: center; font-size: 22px; }
+        .subtitle { text-align: center; color: #8899aa; font-size: 13px; margin-bottom: 8px; }
+        .subtitle a { color: #00d9ff; }
+        .hint { background: #16213e; border-left: 3px solid #e9a560; padding: 10px 14px; border-radius: 6px; color: #e9a560; font-size: 13px; margin: 12px 0; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 14px; }
+        .card { background: #16213e; border-radius: 10px; padding: 14px; text-align: center; cursor: pointer; border: 2px solid transparent; transition: all .15s; }
+        .card:hover { border-color: #00d9ff; transform: translateY(-2px); }
+        .card.playing { border-color: #00c853; background: #0d2818; }
+        .card .name { color: #00d9ff; font-family: monospace; font-size: 14px; font-weight: bold; word-break: break-all; }
+        .card .meta { color: #667788; font-size: 11px; margin-top: 6px; }
+        .card .icon { font-size: 30px; margin-bottom: 6px; }
+        .status { text-align: center; padding: 10px; color: #0f0; font-size: 14px; min-height: 20px; }
+        .empty { text-align: center; color: #8899aa; padding: 30px; }
+        .actions { display: flex; gap: 10px; justify-content: center; margin: 10px 0; flex-wrap: wrap; }
+        .actions button { padding: 8px 16px; background: #0f3460; border: 1px solid #00d9ff; border-radius: 5px; color: #00d9ff; cursor: pointer; font-size: 13px; }
+        .actions button:hover { background: #16213e; }
+    </style>
+</head>
+<body>
+    <h1>表情管理</h1>
+    <div class="subtitle">设备 assets 中的全部 EAF 表情 · 点击卡片在机器人屏幕上预览 · <a href="/">← 返回调试台</a></div>
+    <div class="hint">💡 屏幕上正在播放的会是系统当前表情。聊天中 AI 通过 <code>self.emoji.show</code> 工具也能触发这些表情；下一步语音对话或状态变化可能会覆盖你点的表情，属正常现象。</div>
+    <div class="actions">
+        <button onclick="playNeutral()">▶ 回到默认表情 (neutral)</button>
+        <button onclick="loadEmojis()">↻ 刷新列表</button>
+    </div>
+    <div class="grid" id="grid"></div>
+    <div class="empty" id="empty" style="display:none">没有加载到表情（assets 未挂载？）</div>
+    <div class="status" id="status">加载中…</div>
+
+    <script>
+        let EMOJIS = [];
+        // 常见表情配个小图示（纯装饰，帮助辨认）
+        const ICONS = { happy:'😄', sad:'😢', angry:'😠', surprised:'😮', thinking:'🤔', winking:'😉', cool:'😎', laughing:'😂', loving:'😍', crying:'😭', confused:'😕', embarrassed:'😳', sleepy:'😴', confident:'😎', delicious:'🤤', kiss:'😘', relaxed:'😊', shocked:'😱', silly:'🤪', neutral:'😐', listen:'👂', sleepy2:'😴', launch:'🚀', wificonfig:'📶', scanning:'🔍', calibration:'🛠', remote_mode:'🎮', nvs_reset:'♻️' };
+
+        function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+        function loadEmojis() {
+            document.getElementById('status').textContent = '加载中…';
+            fetch('/api/emoji/list')
+                .then(r => r.json())
+                .then(data => {
+                    EMOJIS = data.emojis || [];
+                    render();
+                    document.getElementById('status').textContent = '共 ' + EMOJIS.length + ' 个表情';
+                })
+                .catch(e => { document.getElementById('status').textContent = '错误: ' + e.message; });
+        }
+
+        function render() {
+            const grid = document.getElementById('grid');
+            grid.innerHTML = '';
+            EMOJIS.forEach(e => {
+                const div = document.createElement('div');
+                div.className = 'card';
+                div.id = 'card_' + e.name;
+                div.onclick = () => play(e.name);
+                div.innerHTML = `
+                    <div class="icon">${ICONS[e.name] || '🎬'}</div>
+                    <div class="name">${esc(e.name)}</div>
+                    <div class="meta">${e.loop ? '循环' : '单次'}${e.fps ? ' · ' + e.fps + 'fps' : ''}</div>
+                `;
+                grid.appendChild(div);
+            });
+            document.getElementById('empty').style.display = EMOJIS.length ? 'none' : 'block';
+        }
+
+        function play(name) {
+            document.getElementById('status').textContent = '正在播放 ' + name + ' …';
+            document.querySelectorAll('.card').forEach(c => c.classList.remove('playing'));
+            fetch('/api/emoji/play?name=' + encodeURIComponent(name))
+                .then(r => r.json())
+                .then(d => {
+                    if (d.ok) {
+                        const card = document.getElementById('card_' + name);
+                        if (card) card.classList.add('playing');
+                        document.getElementById('status').textContent = '▶ 屏幕上正在播放: ' + name;
+                    } else {
+                        document.getElementById('status').textContent = '❌ ' + d.error;
+                    }
+                })
+                .catch(e => { document.getElementById('status').textContent = '错误: ' + e.message; });
+        }
+
+        function playNeutral() { play('neutral'); }
+
+        loadEmojis();
+    </script>
+</body>
+</html>
+)rawliteral";
+
 // GET / - 返回HTML页面
 static esp_err_t index_handler(httpd_req_t *req) {
     httpd_resp_set_type(req, "text/html");
     httpd_resp_send(req, INDEX_HTML, strlen(INDEX_HTML));
+    return ESP_OK;
+}
+
+// GET /mcp - MCP 工具控制台页面
+static esp_err_t mcp_index_handler(httpd_req_t *req) {
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, MCP_HTML, strlen(MCP_HTML));
+    return ESP_OK;
+}
+
+// GET /api/mcp/tools - 枚举所有 MCP 工具（含参数 schema）
+static esp_err_t mcp_tools_handler(httpd_req_t *req) {
+    auto& mcp = McpServer::GetInstance();
+    cJSON *root = cJSON_CreateObject();
+    cJSON *tools = cJSON_CreateArray();
+    for (const auto* tool : mcp.GetTools()) {
+        cJSON *tool_json = cJSON_Parse(tool->to_json().c_str());
+        cJSON_AddItemToArray(tools, tool_json);
+    }
+    cJSON_AddItemToObject(root, "tools", tools);
+
+    char *json_str = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json_str, strlen(json_str));
+
+    cJSON_free(json_str);
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+// GET /api/mcp/call?name=self.xxx&args={"angle":10} - 同步执行一个 MCP 工具
+static esp_err_t mcp_call_handler(httpd_req_t *req) {    char buf[512];
+    int buf_len = httpd_req_get_url_query_len(req) + 1;
+    std::string reply;
+
+    if (buf_len > 1 && buf_len < (int)sizeof(buf)) {
+        httpd_req_get_url_query_str(req, buf, buf_len);
+
+        char name[96] = {0};
+        char args_str[384] = {0};
+        httpd_query_key_value(buf, "name", name, sizeof(name));
+        httpd_query_key_value(buf, "args", args_str, sizeof(args_str));
+
+        std::map<std::string, std::string> args;
+        cJSON *args_json = cJSON_Parse(args_str);
+        if (args_json != nullptr) {
+            cJSON *item = NULL;
+            cJSON_ArrayForEach(item, args_json) {
+                char *v = cJSON_Print(item);
+                if (v != NULL) {
+                    // 去掉字符串两端的引号（cJSON_Print 会带引号）
+                    std::string value = v;
+                    cJSON_free(v);
+                    if (value.size() >= 2 && value.front() == '\"' && value.back() == '\"') {
+                        value = value.substr(1, value.size() - 2);
+                    }
+                    args[item->string] = value;
+                }
+            }
+        }
+        cJSON_Delete(args_json);
+
+        try {
+            std::string result = McpServer::GetInstance().CallToolSync(name, args);
+            reply = "{\"ok\":true,\"result\":";
+            reply += result;
+            reply += "}";
+        } catch (const std::exception& e) {
+            cJSON *err = cJSON_CreateString(e.what());
+            char *err_str = cJSON_PrintUnformatted(err);
+            reply = "{\"ok\":false,\"error\":";
+            reply += err_str;
+            reply += "}";
+            cJSON_free(err_str);
+            cJSON_Delete(err);
+        }
+    } else {
+        reply = "{\"ok\":false,\"error\":\"bad query\"}";
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, reply.c_str(), reply.length());
+    return ESP_OK;
+}
+
+// GET /emoji - 表情管理页面
+static esp_err_t emoji_index_handler(httpd_req_t *req) {
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, EMOJI_HTML, strlen(EMOJI_HTML));
+    return ESP_OK;
+}
+
+// GET /api/emoji/list - 枚举 assets 中的所有表情
+static esp_err_t emoji_list_handler(httpd_req_t *req) {
+    auto display = Board::GetInstance().GetDisplay();
+    auto* emote_display = dynamic_cast<emote::EmoteDisplay*>(display);
+
+    std::string reply;
+    if (emote_display == nullptr) {
+        reply = "{\"emojis\":[],\"error\":\"EmoteDisplay not available\"}";
+    } else {
+        std::string list = emote_display->GetEmojiListJson();
+        if (list.empty()) {
+            reply = "{\"emojis\":[],\"error\":\"index.json not found or parse failed\"}";
+        } else {
+            reply = "{\"emojis\":";
+            reply += list;
+            reply += "}";
+        }
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, reply.c_str(), reply.length());
+    return ESP_OK;
+}
+
+// GET /api/emoji/play?name=happy - 在屏幕上播放指定表情
+static esp_err_t emoji_play_handler(httpd_req_t *req) {
+    char buf[128];
+    std::string reply;
+
+    int buf_len = httpd_req_get_url_query_len(req) + 1;
+    if (buf_len > 1 && buf_len < (int)sizeof(buf)) {
+        httpd_req_get_url_query_str(req, buf, buf_len);
+        char name[64] = {0};
+        httpd_query_key_value(buf, "name", name, sizeof(name));
+
+        if (name[0] == '\0') {
+            reply = "{\"ok\":false,\"error\":\"missing name\"}";
+        } else {
+            auto display = Board::GetInstance().GetDisplay();
+            if (display == nullptr) {
+                reply = "{\"ok\":false,\"error\":\"display not available\"}";
+            } else {
+                display->SetEmotion(name);
+                reply = "{\"ok\":true}";
+            }
+        }
+    } else {
+        reply = "{\"ok\":false,\"error\":\"bad query\"}";
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, reply.c_str(), reply.length());
     return ESP_OK;
 }
 
@@ -266,7 +657,7 @@ void hover_debug_server_start(void) {
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
-    config.max_uri_handlers = 8;
+    config.max_uri_handlers = 12;
 
     esp_err_t ret = httpd_start(&server, &config);
     if (ret != ESP_OK) {
@@ -277,10 +668,22 @@ void hover_debug_server_start(void) {
     httpd_uri_t uri_index = { .uri = "/", .method = HTTP_GET, .handler = index_handler };
     httpd_uri_t uri_data = { .uri = "/api/data", .method = HTTP_GET, .handler = data_handler };
     httpd_uri_t uri_set = { .uri = "/api/set", .method = HTTP_GET, .handler = set_handler };
+    httpd_uri_t uri_mcp_index = { .uri = "/mcp", .method = HTTP_GET, .handler = mcp_index_handler };
+    httpd_uri_t uri_mcp_tools = { .uri = "/api/mcp/tools", .method = HTTP_GET, .handler = mcp_tools_handler };
+    httpd_uri_t uri_mcp_call = { .uri = "/api/mcp/call", .method = HTTP_GET, .handler = mcp_call_handler };
+    httpd_uri_t uri_emoji_index = { .uri = "/emoji", .method = HTTP_GET, .handler = emoji_index_handler };
+    httpd_uri_t uri_emoji_list = { .uri = "/api/emoji/list", .method = HTTP_GET, .handler = emoji_list_handler };
+    httpd_uri_t uri_emoji_play = { .uri = "/api/emoji/play", .method = HTTP_GET, .handler = emoji_play_handler };
 
     httpd_register_uri_handler(server, &uri_index);
     httpd_register_uri_handler(server, &uri_data);
     httpd_register_uri_handler(server, &uri_set);
+    httpd_register_uri_handler(server, &uri_mcp_index);
+    httpd_register_uri_handler(server, &uri_mcp_tools);
+    httpd_register_uri_handler(server, &uri_mcp_call);
+    httpd_register_uri_handler(server, &uri_emoji_index);
+    httpd_register_uri_handler(server, &uri_emoji_list);
+    httpd_register_uri_handler(server, &uri_emoji_play);
 
     ESP_LOGI(TAG, "Debug server started on port 80");
 }

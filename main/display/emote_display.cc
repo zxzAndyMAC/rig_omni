@@ -347,4 +347,66 @@ void EmoteDisplay::RefreshAll()
     }
 }
 
+std::string EmoteDisplay::GetEmojiListJson()
+{
+    if (!emote_handle_) {
+        return "";
+    }
+
+    const uint8_t *data = nullptr;
+    size_t size = 0;
+    if (emote_get_asset_data_by_name(emote_handle_, "index.json", &data, &size) != ESP_OK || data == nullptr) {
+        ESP_LOGE(TAG, "GetEmojiListJson: index.json not found in assets");
+        return "";
+    }
+
+    // index.json 位于 assets 分区（mmap），需要复制一份再解析（cJSON 可能会修改缓冲区）
+    char *buf = (char*)malloc(size + 1);
+    if (buf == nullptr) {
+        return "";
+    }
+    memcpy(buf, data, size);
+    buf[size] = '\0';
+
+    cJSON *root = cJSON_Parse(buf);
+    free(buf);
+    if (root == nullptr) {
+        ESP_LOGE(TAG, "GetEmojiListJson: failed to parse index.json");
+        return "";
+    }
+
+    cJSON *collection = cJSON_GetObjectItem(root, "emoji_collection");
+    cJSON *out = cJSON_CreateArray();
+    if (cJSON_IsArray(collection)) {
+        cJSON *item = NULL;
+        cJSON_ArrayForEach(item, collection) {
+            cJSON *name = cJSON_GetObjectItem(item, "name");
+            if (!cJSON_IsString(name)) {
+                continue;
+            }
+            cJSON *entry = cJSON_CreateObject();
+            cJSON_AddStringToObject(entry, "name", name->valuestring);
+            cJSON *eaf = cJSON_GetObjectItem(item, "eaf");
+            if (cJSON_IsObject(eaf)) {
+                cJSON *loop = cJSON_GetObjectItem(eaf, "loop");
+                cJSON *fps = cJSON_GetObjectItem(eaf, "fps");
+                if (cJSON_IsBool(loop)) {
+                    cJSON_AddBoolToObject(entry, "loop", cJSON_IsTrue(loop));
+                }
+                if (cJSON_IsNumber(fps)) {
+                    cJSON_AddNumberToObject(entry, "fps", fps->valueint);
+                }
+            }
+            cJSON_AddItemToArray(out, entry);
+        }
+    }
+
+    char *json_str = cJSON_PrintUnformatted(out);
+    std::string result = json_str ? json_str : "";
+    cJSON_free(json_str);
+    cJSON_Delete(out);
+    cJSON_Delete(root);
+    return result;
+}
+
 } // namespace emote

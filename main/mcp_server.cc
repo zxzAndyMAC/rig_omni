@@ -663,3 +663,38 @@ void McpServer::DoToolCall(int id, const std::string& tool_name, const cJSON* to
         }
     });
 }
+
+std::string McpServer::CallToolSync(const std::string& tool_name, const std::map<std::string, std::string>& args) {
+    auto tool_iter = std::find_if(tools_.begin(), tools_.end(),
+                                 [&tool_name](const McpTool* tool) {
+                                     return tool->name() == tool_name;
+                                 });
+
+    if (tool_iter == tools_.end()) {
+        throw std::runtime_error("Unknown tool: " + tool_name);
+    }
+
+    PropertyList arguments = (*tool_iter)->properties();
+    for (auto& argument : arguments) {
+        auto arg_iter = args.find(argument.name());
+        if (arg_iter != args.end()) {
+            try {
+                if (argument.type() == kPropertyTypeBoolean) {
+                    std::string v = arg_iter->second;
+                    std::transform(v.begin(), v.end(), v.begin(), ::tolower);
+                    argument.set_value<bool>(v == "true" || v == "1");
+                } else if (argument.type() == kPropertyTypeInteger) {
+                    argument.set_value<int>(std::stoi(arg_iter->second));
+                } else {
+                    argument.set_value<std::string>(arg_iter->second);
+                }
+            } catch (const std::exception& e) {
+                throw std::runtime_error("Invalid argument '" + argument.name() + "': " + e.what());
+            }
+        } else if (!argument.has_default_value()) {
+            throw std::runtime_error("Missing required argument: " + argument.name());
+        }
+    }
+
+    return (*tool_iter)->Call(arguments);
+}

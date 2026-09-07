@@ -416,6 +416,22 @@ private:
                 return std::string("暂未读取到电池电压");
             });
 
+        mcp_server.AddTool("self.emoji.show",
+            "在机器人屏幕上播放指定表情动画。当用户说做个表情、笑一个、开心点、难过、惊讶等时调用此工具。\n"
+            "Play an emoji animation on the robot screen.\n"
+            "Args:\n"
+            "  `name`: 表情名称（英文小写），如 happy / sad / angry / surprised / cool / sleepy / laughing / loving 等",
+            PropertyList({
+                Property("name", kPropertyTypeString)
+            }), [this](const PropertyList& properties) -> ReturnValue {
+                auto name = properties["name"].value<std::string>();
+                if (display_ == nullptr) {
+                    throw std::runtime_error("Display not available");
+                }
+                display_->SetEmotion(name.c_str());
+                return true;
+            });
+
     }
 
 public:
