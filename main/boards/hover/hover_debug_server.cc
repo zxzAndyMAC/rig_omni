@@ -18,73 +18,112 @@ static httpd_handle_t server = NULL;
 // HTML页面
 static const char* INDEX_HTML = R"rawliteral(
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hover Debug</title>
+    <title>Hover 调试台</title>
     <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: #1a1a2e; color: #eee; }
-        h1 { color: #00d9ff; text-align: center; }
-        .section { background: #16213e; border-radius: 10px; padding: 15px; margin: 15px 0; }
-        .section h2 { color: #00d9ff; margin-top: 0; font-size: 18px; }
+        body { font-family: -apple-system, "PingFang SC", Arial, sans-serif; max-width: 860px; margin: 0 auto; padding: 20px; background: #1a1a2e; color: #eee; }
+        h1 { color: #00d9ff; text-align: center; font-size: 22px; }
+        .subtitle { text-align: center; color: #8899aa; font-size: 13px; margin-bottom: 8px; }
+        .section { background: #16213e; border-radius: 12px; padding: 16px; margin: 15px 0; }
+        .section h2 { color: #00d9ff; margin-top: 0; font-size: 17px; }
+        .hint { color: #8899aa; font-size: 12px; margin: 2px 0 10px; }
         .imu-data { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
         .imu-item { background: #0f3460; padding: 15px; border-radius: 8px; text-align: center; }
-        .imu-item .label { color: #888; font-size: 12px; }
-        .imu-item .value { font-size: 24px; font-weight: bold; color: #00d9ff; }
-        .var-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-        .var-item { display: flex; align-items: center; gap: 10px; }
-        .var-item label { min-width: 100px; color: #888; }
-        .var-item input { flex: 1; padding: 8px; border: 1px solid #0f3460; border-radius: 5px; background: #0f3460; color: #fff; font-size: 16px; }
-        .var-item button { padding: 8px 15px; background: #00d9ff; border: none; border-radius: 5px; color: #000; cursor: pointer; font-weight: bold; }
+        .imu-item .label { color: #8899aa; font-size: 12px; }
+        .imu-item .value { font-size: 26px; font-weight: bold; color: #00d9ff; }
+        .imu-item .desc { color: #667788; font-size: 11px; margin-top: 4px; }
+        .var-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+        .var-item { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .var-item label { min-width: 150px; }
+        .var-item .name { color: #00d9ff; font-weight: bold; font-size: 14px; }
+        .var-item .desc { color: #8899aa; font-size: 12px; flex: 1; min-width: 200px; }
+        .var-item input { width: 110px; padding: 8px; border: 1px solid #0f3460; border-radius: 5px; background: #0f3460; color: #fff; font-size: 15px; }
+        .var-item button { padding: 8px 16px; background: #00d9ff; border: none; border-radius: 5px; color: #000; cursor: pointer; font-weight: bold; }
         .var-item button:hover { background: #00b8d4; }
-        .var-item.reserved input { opacity: 0.5; }
-        .status { text-align: center; padding: 10px; color: #0f0; font-size: 14px; }
-        .refresh-btn { display: block; width: 100%; padding: 12px; background: #e94560; border: none; border-radius: 5px; color: #fff; font-size: 16px; cursor: pointer; margin-top: 10px; }
-        .refresh-btn:hover { background: #c73e54; }
+        .var-item.locked input, .var-item.locked button { opacity: 0.35; pointer-events: none; }
+        .lock-row { display: flex; align-items: center; gap: 8px; margin: 6px 0 12px; color: #e9a560; font-size: 13px; }
+        .danger { border: 1px solid #e94560; }
+        .danger h2 { color: #e94560; }
+        .status { text-align: center; padding: 10px; color: #0f0; font-size: 14px; min-height: 20px; }
     </style>
 </head>
 <body>
-    <h1>Hover Debug Panel</h1>
-    
+    <h1>Hover 调试台</h1>
+    <div class="subtitle">RIG-Hover · 实时姿态与平衡参数（每 0.5 秒自动刷新）</div>
+
     <div class="section">
-        <h2>IMU Data</h2>
+        <h2>📐 身体姿态（只读）</h2>
+        <div class="hint">静置桌面时 Roll / Pitch 应接近 0；前后扶动可看到 Pitch 变化 —— 这就是它感知「要摔倒」的方式。</div>
         <div class="imu-data">
-            <div class="imu-item"><div class="label">Roll</div><div class="value" id="roll">--</div></div>
-            <div class="imu-item"><div class="label">Pitch</div><div class="value" id="pitch">--</div></div>
-            <div class="imu-item"><div class="label">Yaw</div><div class="value" id="yaw">--</div></div>
+            <div class="imu-item"><div class="label">Roll 左右倾斜°</div><div class="value" id="roll">--</div><div class="desc">往左/右歪</div></div>
+            <div class="imu-item"><div class="label">Pitch 前后俯仰°</div><div class="value" id="pitch">--</div><div class="desc">⭐ 平衡关键量</div></div>
+            <div class="imu-item"><div class="label">Yaw 朝向°</div><div class="value" id="yaw">--</div><div class="desc">转了多少度</div></div>
         </div>
     </div>
-    
+
     <div class="section">
-        <h2>Debug Variables</h2>
-        <div class="var-grid" id="var-grid"></div>
+        <h2>🟢 安全区（新手可调）</h2>
+        <div class="hint">手扶设备、小步调整。每次改一点，观察反应。</div>
+        <div class="var-grid" id="safe-grid"></div>
     </div>
-    
-    <div class="status" id="status">Ready</div>
-    <button class="refresh-btn" onclick="fetchData()">Refresh</button>
-    
+
+    <div class="section danger">
+        <h2>🔴 危险区（会摔车！）</h2>
+        <div class="lock-row">
+            <input type="checkbox" id="unlock" onchange="toggleLock()">
+            <label for="unlock">我已扶稳设备，知道这些参数会让平衡立刻改变</label>
+        </div>
+        <div class="var-grid" id="danger-grid"></div>
+    </div>
+
+    <div class="status" id="status">就绪</div>
+
     <script>
-        const VAR_COUNT = 20;
-        const VAR_LABELS = [
-            'head', 'delta_pos', 'POS_kp', 'POS_kd', 'VEL_kp', 'VEL_ki', 'PIT_kp', 'PIT_kd', 'YAW_kp', 'delta_yaw',
-            'LQR_k0', 'LQR_k1', 'LQR_k2', 'LQR_k3',
-            'var14', 'var15', 'var16', 'var17', 'var18', 'var19'
+        // [索引, 名称, 说明, 步长, 默认锁定]
+        const SAFE_VARS = [
+            [8,  'IMU零点 (imu_zero)', '⭐ 最常调：放平后 Pitch 不为 0 时微调它归零，±0.5 小步', 0.1],
+            [0,  '头部角度 (head)',     '头部舵机目标角度，正负代表左右', 5],
+            [9,  '转向增量 (delta_yaw)', '车身原地转一点（累计生效）', 1],
+            [1,  '位置增量 (delta_pos)', '整体前进/后退一点（累计生效）', 0.1],
         ];
-        function createVarInputs() {
-            const grid = document.getElementById('var-grid');
-            for (let i = 0; i < VAR_COUNT; i++) {
+        const DANGER_VARS = [
+            [10, 'LQR_k0', '平衡总增益1（默认1400）', 10],
+            [11, 'LQR_k1', '平衡总增益2（默认6.8）', 0.1],
+            [12, 'LQR_k2', '平衡总增益3（默认32）', 0.5],
+            [13, 'LQR_k3', '平衡总增益4（默认1.6）', 0.05],
+            [2,  'POS_kp', '位置环 P（默认60）', 1],
+            [4,  'VEL_kp', '速度环 P（默认0.15）', 0.01],
+            [5,  'VEL_ki', '速度环 I（默认0.01）', 0.005],
+            [6,  'PIT_kp', '俯仰环 P（默认21）', 0.5],
+            [7,  'PIT_kd', '俯仰阻尼（默认0.7）', 0.05],
+        ];
+
+        function buildGrid(gridId, vars) {
+            const grid = document.getElementById(gridId);
+            vars.forEach(([i, name, desc, step]) => {
                 const div = document.createElement('div');
-                div.className = 'var-item' + (i >= 14 ? ' reserved' : '');
+                div.className = 'var-item';
+                div.id = 'row' + i;
                 div.innerHTML = `
-                    <label>${VAR_LABELS[i]}:</label>
-                    <input type="number" step="any" id="var${i}" value="0" ${i >= 14 ? 'disabled' : ''}>
-                    <button onclick="setVar(${i})" ${i >= 14 ? 'disabled' : ''}>Set</button>
+                    <label><span class="name">${name}</span></label>
+                    <span class="desc">${desc}</span>
+                    <input type="number" step="${step}" id="var${i}" value="0">
+                    <button onclick="setVar(${i})">设置</button>
                 `;
                 grid.appendChild(div);
-            }
+            });
         }
-        
+
+        function toggleLock() {
+            const unlocked = document.getElementById('unlock').checked;
+            DANGER_VARS.forEach(([i]) => {
+                document.getElementById('row' + i).classList.toggle('locked', !unlocked);
+            });
+        }
+
         function fetchData() {
             fetch('/api/data')
                 .then(r => r.json())
@@ -92,27 +131,29 @@ static const char* INDEX_HTML = R"rawliteral(
                     document.getElementById('roll').textContent = data.imu.roll.toFixed(2);
                     document.getElementById('pitch').textContent = data.imu.pitch.toFixed(2);
                     document.getElementById('yaw').textContent = data.imu.yaw.toFixed(2);
-                    document.getElementById('status').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+                    document.getElementById('status').textContent = '已更新 ' + new Date().toLocaleTimeString();
                 })
-                .catch(e => {
-                    document.getElementById('status').textContent = 'Error: ' + e.message;
-                });
+                .catch(e => { document.getElementById('status').textContent = '错误: ' + e.message; });
         }
-        
+
         function setVar(index) {
-            if (index >= 14) return;
             const value = parseFloat(document.getElementById('var' + index).value);
+            if (isNaN(value)) return;
+            // 温和范围保护（防手滑输爆）
+            const limits = {0:200, 1:2, 8:5, 9:30};
+            if (index in limits && Math.abs(value) > limits[index]) {
+                document.getElementById('status').textContent = '⚠ 值超出安全范围，请小步调整';
+                return;
+            }
             fetch('/api/set?i=' + index + '&v=' + value)
                 .then(r => r.json())
-                .then(data => {
-                    document.getElementById('status').textContent = VAR_LABELS[index] + ' set to ' + value;
-                })
-                .catch(e => {
-                    document.getElementById('status').textContent = 'Error: ' + e.message;
-                });
+                .then(() => { document.getElementById('status').textContent = '✅ 已设置 [' + index + '] = ' + value; })
+                .catch(e => { document.getElementById('status').textContent = '错误: ' + e.message; });
         }
-        
-        createVarInputs();
+
+        buildGrid('safe-grid', SAFE_VARS);
+        buildGrid('danger-grid', DANGER_VARS);
+        toggleLock();
         fetchData();
         setInterval(fetchData, 500);
     </script>
