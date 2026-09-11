@@ -556,8 +556,14 @@ public:
         if (WifiManager::GetInstance().IsConnected()) {
             hover_debug_server_start();
             std::string ip = WifiManager::GetInstance().GetIpAddress();
-            ESP_LOGI(TAG, "Debug server started at http://%s", ip.c_str());
+            ESP_LOGI(TAG, "LAN control at http://%s  (no idle BLE)", ip.c_str());
         }
+    }
+
+    virtual void OnWifiStaConnected() override {
+        hover_debug_server_start();
+        std::string ip = WifiManager::GetInstance().GetIpAddress();
+        ESP_LOGI(TAG, "WiFi STA connected, LAN control http://%s", ip.c_str());
     }
 
     virtual void OnWifiConfigStart() override {

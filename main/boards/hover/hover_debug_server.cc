@@ -7,12 +7,18 @@
 #include "display/emote_display.h"
 #include <esp_http_server.h>
 #include <esp_log.h>
+#include <esp_mac.h>
 #include <cJSON.h>
 #include <ctype.h>
 #include <string.h>
 #include <string>
 #include <map>
 #include <stdio.h>
+#include <stdexcept>
+#include <lwip/sockets.h>
+#include <freertos/semphr.h>
+#include <wifi_manager.h>
+#include "application.h"
 
 static const char* TAG = "HoverDebug";
 
@@ -515,10 +521,36 @@ static esp_err_t mcp_call_handler(httpd_req_t *req) {
         cJSON_Delete(args_json);
 
         try {
-            std::string result = McpServer::GetInstance().CallToolSync(name, args);
+            struct McpJob {
+                std::string name;
+                std::map<std::string, std::string> args;
+                std::string result;
+                std::string error;
+                SemaphoreHandle_t sem;
+            };
+            auto* job = new McpJob{name, args, "", "", xSemaphoreCreateBinary()};
+            Application::GetInstance().Schedule([job]() {
+                try {
+                    job->result = McpServer::GetInstance().CallToolSync(job->name, job->args);
+                } catch (const std::exception& e) {
+                    job->error = e.what();
+                }
+                xSemaphoreGive(job->sem);
+            });
+            if (xSemaphoreTake(job->sem, pdMS_TO_TICKS(4000)) != pdTRUE) {
+                throw std::runtime_error("mcp timeout");
+            }
+            if (!job->error.empty()) {
+                std::string err = job->error;
+                vSemaphoreDelete(job->sem);
+                delete job;
+                throw std::runtime_error(err);
+            }
             reply = "{\"ok\":true,\"result\":";
-            reply += result;
+            reply += job->result;
             reply += "}";
+            vSemaphoreDelete(job->sem);
+            delete job;
         } catch (const std::exception& e) {
             cJSON *err = cJSON_CreateString(e.what());
             char *err_str = cJSON_PrintUnformatted(err);
@@ -689,6 +721,36 @@ static esp_err_t set_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+static void xiaoxing_beacon_task(void* arg) {
+    (void)arg;
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (sock < 0) {
+        ESP_LOGE(TAG, "beacon socket failed");
+        vTaskDelete(NULL);
+        return;
+    }
+    int yes = 1;
+    setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &yes, sizeof(yes));
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_BT);
+    char name[24];
+    snprintf(name, sizeof(name), "%s%02X%02X", BOARD_TYPE, mac[4], mac[5]);
+    struct sockaddr_in dest = {};
+    dest.sin_family = AF_INET;
+    dest.sin_port = htons(3650);
+    dest.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+    ESP_LOGI(TAG, "UDP beacon %s on port 3650", name);
+    while (true) {
+        std::string ip = WifiManager::GetInstance().GetIpAddress();
+        if (!ip.empty()) {
+            char msg[192];
+            snprintf(msg, sizeof(msg), "XIAOXING ip=%s name=%s\n", ip.c_str(), name);
+            sendto(sock, msg, strlen(msg), 0, reinterpret_cast<struct sockaddr*>(&dest), sizeof(dest));
+        }
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+}
+
 void hover_debug_server_start(void) {
     if (server != NULL) {
         ESP_LOGW(TAG, "Server already running");
@@ -726,6 +788,7 @@ void hover_debug_server_start(void) {
     httpd_register_uri_handler(server, &uri_emoji_play);
 
     ESP_LOGI(TAG, "Debug server started on port 80");
+    xTaskCreate(xiaoxing_beacon_task, "xiaoxing_bcn", 3072, NULL, 3, NULL);
 }
 
 void hover_debug_server_stop(void) {

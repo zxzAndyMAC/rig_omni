@@ -112,6 +112,7 @@ void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
             esp_timer_stop(connect_timer_);
             in_config_mode_ = false;
             ESP_LOGI(TAG, "Connected to WiFi: %s", data.c_str());
+            Board::GetInstance().OnWifiStaConnected();
 // 注意：不再自动释放蓝牙内存，以支持 BLE 遥控模式
             // 如果需要释放内存，可以在确定不需要 BLE 功能时手动调用
             break;

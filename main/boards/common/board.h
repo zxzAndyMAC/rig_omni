@@ -13,6 +13,7 @@
 #include "backlight.h"
 #include "camera.h"
 #include "assets.h"
+#include "device_state.h"
 
 class Display;
 class AudioService;
@@ -89,6 +90,8 @@ public:
     virtual void OnInitializationComplete() {}  // 初始化完成时调用，板级可重写
     virtual void OnWifiConfigStart() {}  // WiFi配网开始时调用，板级可重写
     virtual void OnWifiConfigEnd() {}  // WiFi配网结束时调用，板级可重写
+    virtual void OnWifiStaConnected() {}  // STA 连上后调用，板级可重写（如已联网 GATT）
+    virtual void OnDeviceStateChanged(DeviceState state) { (void)state; }
     virtual void CheckCalibration(Display* display, AudioService& audio) {}  // 检查标定状态，板级可重写
     virtual void SetLaser(bool on) {}  // 激光剑控制，板级可重写
     virtual bool GetLaser() { return false; }  // 查询激光剑状态，板级可重写
