@@ -22,7 +22,8 @@ CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
 CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
 
 CONFIG_SR_WN_WN9_NIHAOXIAOZHI_TTS=y
-# OTA URL auto-selected by FIRMWARE_REGION in ota.cc (no longer in Kconfig)
+# OTA URL 解析顺序：NVS wifi/ota_url → CONFIG_OTA_URL → 按 FIRMWARE_REGION 默认（见 ota.cc）
+# 三板共享此文件；每板自己的默认值写在各自板级 defaults（如 boards/hover 的 CONFIG_OTA_URL）。
 
 CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096
 

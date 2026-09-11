@@ -46,6 +46,13 @@ Ota::~Ota() {
 std::string Ota::GetCheckVersionUrl() {
     Settings settings("wifi", false);
     std::string url = settings.GetString("ota_url");
+#ifdef CONFIG_OTA_URL
+    // 编译期默认（menuconfig RIG-Omni → OTA URL override）。
+    // 为空时回退到按区域默认，保持 Puppy/Arm 既有行为不变（ADR-008）。
+    if (url.empty() && sizeof(CONFIG_OTA_URL) > 1) {
+        url = CONFIG_OTA_URL;
+    }
+#endif
     if (url.empty()) {
 #if CONFIG_FIRMWARE_REGION_OVERSEAS
         url = "https://xl-api.luwudynamics.ai/xiaolu/ota/";

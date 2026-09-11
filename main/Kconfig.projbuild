@@ -29,6 +29,14 @@ config OTA_URL
           Overseas  -> https://xl-api.luwudynamics.ai/xiaolu/ota/
         Set a non-empty value to override the auto-selected URL.
 
+        Resolution order (Ota::GetCheckVersionUrl):
+          1. NVS namespace "wifi", key "ota_url"   (per-device ops override)
+          2. this Kconfig value                    (compile-time default)
+          3. region default                        (legacy behavior)
+
+        Example: point Hover at the self-hosted cloud with
+          https://robot-test.fozmoly.com/xiaolu/ota/
+
 choice
     prompt "Flash Assets"
     default FLASH_DEFAULT_ASSETS if !USE_EMOTE_MESSAGE_STYLE
