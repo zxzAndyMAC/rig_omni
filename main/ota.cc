@@ -501,3 +501,33 @@ esp_err_t Ota::Activate() {
     ESP_LOGI(TAG, "Activation successful");
     return ESP_OK;
 }
+
+esp_err_t Ota::Heartbeat(std::string* response_json) {
+    std::string url = GetCheckVersionUrl();
+    auto pos = url.find("/ota/");
+    if (pos == std::string::npos) {
+        pos = url.find("/ota");
+        if (pos == std::string::npos) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        url.replace(pos, 4, "/heartbeat");
+    } else {
+        url.replace(pos, 5, "/heartbeat/");
+    }
+    auto http = SetupHttp();
+    http->SetContent(std::string("{}"));
+    if (!http->Open("POST", url)) {
+        return http->GetLastError() != 0 ? http->GetLastError() : ESP_FAIL;
+    }
+    auto status = http->GetStatusCode();
+    auto body = http->ReadAll();
+    http->Close();
+    if (status != 200) {
+        ESP_LOGW(TAG, "heartbeat status=%d", status);
+        return ESP_FAIL;
+    }
+    if (response_json) {
+        *response_json = std::move(body);
+    }
+    return ESP_OK;
+}

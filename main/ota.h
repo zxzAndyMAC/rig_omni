@@ -30,6 +30,8 @@ public:
     const std::string& GetActivationMessage() const { return activation_message_; }
     const std::string& GetActivationCode() const { return activation_code_; }
     std::string GetCheckVersionUrl();
+    // Idle keep-alive; returns JSON body (interval + pending commands).
+    esp_err_t Heartbeat(std::string* response_json);
 
 private:
     std::string activation_message_;

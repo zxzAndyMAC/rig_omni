@@ -153,6 +153,8 @@ private:
     bool assets_version_checked_ = false;
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
     int clock_ticks_ = 0;
+    int heartbeat_interval_sec_ = 30;
+    int last_heartbeat_tick_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
 
 
@@ -174,6 +176,7 @@ private:
     // Helper methods
     void CheckAssetsVersion();
     void CheckNewVersion();
+    void RunIdleHeartbeat();
     void InitializeProtocol();
     void SetListeningMode(ListeningMode mode);
     ListeningMode GetDefaultListeningMode() const;

@@ -11,6 +11,8 @@
 #include "settings.h"
 
 #include <cstring>
+#include <cstdio>
+#include <map>
 #include <esp_log.h>
 #include <cJSON.h>
 #include <driver/gpio.h>
@@ -291,6 +293,12 @@ void Application::Run() {
             // Print debug info every 10 seconds
             if (clock_ticks_ % 10 == 0) {
                 SystemInfo::PrintHeapStats();
+            }
+            if (GetDeviceState() == kDeviceStateIdle &&
+                heartbeat_interval_sec_ > 0 &&
+                clock_ticks_ - last_heartbeat_tick_ >= heartbeat_interval_sec_) {
+                last_heartbeat_tick_ = clock_ticks_;
+                Schedule([this]() { RunIdleHeartbeat(); });
             }
         }
     }
@@ -1163,5 +1171,80 @@ void Application::ResetProtocolSync() {
         protocol_->CloseAudioChannel();
     }
     protocol_.reset();
+}
+
+void Application::RunIdleHeartbeat() {
+    if (!ota_ || GetDeviceState() != kDeviceStateIdle) {
+        return;
+    }
+    std::string body;
+    if (ota_->Heartbeat(&body) != ESP_OK) {
+        return;
+    }
+    cJSON* root = cJSON_Parse(body.c_str());
+    if (!root) {
+        return;
+    }
+    cJSON* interval = cJSON_GetObjectItem(root, "interval_sec");
+    if (cJSON_IsNumber(interval) && interval->valueint >= 10 && interval->valueint <= 300) {
+        heartbeat_interval_sec_ = interval->valueint;
+    }
+    cJSON* cmds = cJSON_GetObjectItem(root, "commands");
+    if (cJSON_IsArray(cmds)) {
+        auto& mcp = McpServer::GetInstance();
+        cJSON* cmd = nullptr;
+        cJSON_ArrayForEach(cmd, cmds) {
+            cJSON* method = cJSON_GetObjectItem(cmd, "method");
+            if (!cJSON_IsString(method)) {
+                continue;
+            }
+            std::map<std::string, std::string> args;
+            cJSON* params = cJSON_GetObjectItem(cmd, "params");
+            if (cJSON_IsString(params)) {
+                cJSON* parsed = cJSON_Parse(params->valuestring);
+                if (parsed && cJSON_IsObject(parsed)) {
+                    params = parsed;
+                } else {
+                    parsed = nullptr;
+                }
+                if (cJSON_IsObject(params)) {
+                    cJSON* it = nullptr;
+                    cJSON_ArrayForEach(it, params) {
+                        if (cJSON_IsString(it)) {
+                            args[it->string] = it->valuestring;
+                        } else if (cJSON_IsNumber(it)) {
+                            char buf[32];
+                            snprintf(buf, sizeof(buf), "%d", it->valueint);
+                            args[it->string] = buf;
+                        } else if (cJSON_IsBool(it)) {
+                            args[it->string] = cJSON_IsTrue(it) ? "true" : "false";
+                        }
+                    }
+                }
+                if (parsed) {
+                    cJSON_Delete(parsed);
+                }
+            } else if (cJSON_IsObject(params)) {
+                cJSON* it = nullptr;
+                cJSON_ArrayForEach(it, params) {
+                    if (cJSON_IsString(it)) {
+                        args[it->string] = it->valuestring;
+                    } else if (cJSON_IsNumber(it)) {
+                        char buf[32];
+                        snprintf(buf, sizeof(buf), "%d", it->valueint);
+                        args[it->string] = buf;
+                    } else if (cJSON_IsBool(it)) {
+                        args[it->string] = cJSON_IsTrue(it) ? "true" : "false";
+                    }
+                }
+            }
+            try {
+                mcp.CallToolSync(method->valuestring, args);
+            } catch (const std::exception& e) {
+                ESP_LOGW(TAG, "heartbeat cmd %s: %s", method->valuestring, e.what());
+            }
+        }
+    }
+    cJSON_Delete(root);
 }
 
