@@ -12,7 +12,7 @@ Hover 固件 OTA 检查地址指向自建云 `https://robot-test.fozmoly.com/xia
 - [x] `main/ota.cc` `GetCheckVersionUrl()`：NVS 覆盖 → **CONFIG_OTA_URL（新增）** → 区域默认
 - [x] `main/Kconfig.projbuild`：OTA_URL help 补充解析顺序说明与示例
 - [x] `sdkconfig.defaults.esp32s3`：注释更新（此文件不写 URL，板级差异在烧录时配）
-- [ ] 烧录验证：menuconfig 设 `CONFIG_OTA_URL="https://robot-test.fozmoly.com/xiaolu/ota/"` 后 build flash，串口确认请求打到新云
+- [x] 烧录：Hover `CONFIG_OTA_URL=https://robot-test.fozmoly.com/xiaolu/ota/` 已 flash 到 `/dev/cu.usbmodem5C941459091`（MAC b8:1f:3f:ac:b9:68）
 
 ## 烧录操作（在 rig_omni 本机）
 
@@ -30,6 +30,6 @@ idf.py -p /dev/cu.usbmodem5C941459091 flash monitor
 
 ## 验收
 
-- [ ] P0 云端（robot 仓库票 03+04）上线后：真机开机串口 OTA 检查命中 `robot-test.fozmoly.com` 且返回 200
+- [ ] P0 云端上线后：真机开机串口 OTA 检查命中 `robot-test.fozmoly.com` 且返回 200（等设备连上 WiFi 后看串口）
 - [ ] 云端未上线时：设备 OTA 失败不影响正常开机运行（联网、表情、LAN 控制均正常）
 - [ ] Puppy/Arm 构建（OTA_URL 留空）行为与改动前完全一致
